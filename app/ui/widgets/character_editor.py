@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from app.core.character import CharacterFiles, load_character
 from app.core.project import IkemenProject
 from app.ui.syntax.mugen_highlighter import MugenHighlighter
+from app.ui.widgets.def_editor import DefEditor
 
 
 class CharacterEditor(QWidget):
@@ -107,6 +108,11 @@ class CharacterEditor(QWidget):
         self._tab_widget.tabCloseRequested.connect(self._on_tab_close)
         right_layout.addWidget(self._tab_widget)
 
+        # Aba "Visual DEF" sempre presente no índice 0
+        self._def_editor = DefEditor()
+        self._def_editor.changed.connect(self.changed)
+        self._tab_widget.addTab(self._def_editor, "Visual DEF")
+
         splitter.addWidget(right)
         splitter.setSizes([240, 760])
 
@@ -159,6 +165,7 @@ class CharacterEditor(QWidget):
             f"Autor: {cf.author or 'desconhecido'}"
         )
         self._populate_file_list()
+        self._def_editor.load(def_path)
 
     def _populate_file_list(self) -> None:
         self._list_files.clear()
@@ -227,7 +234,19 @@ class CharacterEditor(QWidget):
 
     @Slot(int)
     def _on_tab_close(self, index: int) -> None:
+        # Aba 0 é o "Visual DEF" — não pode ser fechada
+        if index == 0:
+            return
         self._tab_widget.removeTab(index)
+
+    def save(self) -> None:
+        """Salva o .def visual e todos os arquivos de texto modificados."""
+        self._def_editor.save()
+        for i in range(self._tab_widget.count()):
+            ed = self._tab_widget.widget(i)
+            if isinstance(ed, _TextEditor) and ed._file_path in self._modified:
+                ed.save()
+        self._modified.clear()
 
 
 class _TextEditor(QWidget):

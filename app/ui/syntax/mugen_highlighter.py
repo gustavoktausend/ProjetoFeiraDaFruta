@@ -64,8 +64,8 @@ _RULES: list[tuple[QRegularExpression, str]] = [
                         r"p1stateno|p2stateno|p1anim|p2anim|"
                         r"yaccel|ctrlturn|layerno|pos|scale|"
                         r"persistent|ignorehitpause|priority|"
-                        r"movecancelrequired|slot)\s*(?==)", "key",
-                        QRegularExpression.CaseInsensitiveOption),
+                        r"movecancelrequired|slot)\s*(?==)",
+                        QRegularExpression.CaseInsensitiveOption), "key"),
     # Palavras-chave de expressão
     (QRegularExpression(
         r"\b(ifelse|floor|ceil|abs|cos|sin|log|exp|"

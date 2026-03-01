@@ -184,6 +184,12 @@ class MainWindow(QMainWindow):
                 self._tab_roster.save()
                 saved_any = True
 
+        if self._tab_character is not None:
+            from app.ui.widgets.character_editor import CharacterEditor
+            if isinstance(self._tab_character, CharacterEditor):
+                self._tab_character.save()
+                saved_any = True
+
         if saved_any:
             self._dirty = False
             self._update_title()
