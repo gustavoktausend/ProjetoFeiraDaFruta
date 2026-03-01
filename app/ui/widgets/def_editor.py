@@ -410,11 +410,21 @@ class _SpriteBrowserTab(QWidget):
         self._sheet = sheet
         self._model.set_sheet(sheet)
         if sheet is not None:
-            self._tree.expandToDepth(0)
             self._lbl_info.setText(f"{sheet.count()} sprites carregados — selecione um item")
+            # Expande imediatamente se já estiver visível; caso contrário showEvent cuida disso
+            if self.isVisible():
+                self._tree.expandToDepth(0)
         else:
             self._scene.clear()
             self._lbl_info.setText("Nenhum SFF carregado")
+
+    def showEvent(self, event) -> None:
+        """Garante expansão e fitInView corretos ao tornar a aba visível."""
+        super().showEvent(event)
+        if self._sheet is not None:
+            self._tree.expandToDepth(0)
+        if not self._scene.sceneRect().isEmpty():
+            self._gv.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
 
     @Slot(QModelIndex, QModelIndex)
     def _on_tree_selection(self, current: QModelIndex, _prev: QModelIndex) -> None:
