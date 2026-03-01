@@ -6,7 +6,9 @@ Layout:
     QLabel título ("Editando: [displayname] por [author]")
     QSplitter(Horizontal):
       Esquerda (QScrollArea): formulários por seção
-      Direita: _PortraitPanel (portrait 9000,0 + status de arquivos)
+      Direita: QTabWidget
+        Aba "Portrait": portrait 9000,0 + small 9000,1 + status de arquivos
+        Aba "Sprites":  árvore de grupos/itens + QGraphicsView
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import (
+    QModelIndex,
     QObject,
     QRunnable,
     QThreadPool,
@@ -21,12 +24,14 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QColor, QFont, QImage, QPixmap
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsScene,
+    QGraphicsView,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -37,6 +42,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QTabWidget,
+    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -240,16 +247,16 @@ class _PortraitLoader(QRunnable):
 
 
 # ------------------------------------------------------------------
-# Painel de portrait (direita)
+# Aba de portrait
 # ------------------------------------------------------------------
 
-class _PortraitPanel(QGroupBox):
-    """Painel direito com portrait, info do SFF e status de arquivos."""
+class _PortraitTab(QWidget):
+    """Aba Portrait: portrait 9000,0 + small 9000,1 + status de arquivos."""
 
     reload_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Portrait", parent)
+        super().__init__(parent)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -334,6 +341,114 @@ class _PortraitPanel(QGroupBox):
 
 
 # ------------------------------------------------------------------
+# Utilitário de fundo xadrez (transparência)
+# ------------------------------------------------------------------
+
+def _checkerboard_brush(size: int = 8) -> QBrush:
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.fill(QColor(180, 180, 180))
+    painter = QPainter(pixmap)
+    painter.fillRect(0, 0, size, size, QColor(220, 220, 220))
+    painter.fillRect(size, size, size, size, QColor(220, 220, 220))
+    painter.end()
+    return QBrush(pixmap)
+
+
+# ------------------------------------------------------------------
+# Aba de navegação de sprites
+# ------------------------------------------------------------------
+
+class _SpriteBrowserTab(QWidget):
+    """Aba Sprites: árvore de grupos/itens + QGraphicsView com preview."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        from app.ui.models.sprite_group_model import SpriteGroupModel
+        self._model = SpriteGroupModel()
+        self._sheet = None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        splitter = QSplitter(Qt.Vertical)
+
+        # Árvore de grupos/itens
+        self._tree = QTreeView()
+        self._tree.setModel(self._model)
+        self._tree.setHeaderHidden(False)
+        self._tree.setMinimumHeight(100)
+        self._tree.selectionModel().currentChanged.connect(self._on_tree_selection)
+        splitter.addWidget(self._tree)
+
+        # Área de exibição do sprite
+        display_w = QWidget()
+        display_layout = QVBoxLayout(display_w)
+        display_layout.setContentsMargins(0, 0, 0, 0)
+        display_layout.setSpacing(2)
+
+        self._lbl_info = QLabel("Selecione um sprite na árvore")
+        self._lbl_info.setStyleSheet("color: #888; font-size: 10px;")
+        self._lbl_info.setWordWrap(True)
+        display_layout.addWidget(self._lbl_info)
+
+        self._scene = QGraphicsScene()
+        self._gv = QGraphicsView(self._scene)
+        self._gv.setDragMode(QGraphicsView.ScrollHandDrag)
+        self._gv.setBackgroundBrush(_checkerboard_brush())
+        self._gv.setMinimumHeight(120)
+        display_layout.addWidget(self._gv, 1)
+
+        splitter.addWidget(display_w)
+        splitter.setSizes([200, 200])
+
+        layout.addWidget(splitter, 1)
+
+    def set_sheet(self, sheet) -> None:
+        self._sheet = sheet
+        self._model.set_sheet(sheet)
+        if sheet is not None:
+            self._tree.expandToDepth(0)
+            self._lbl_info.setText(f"{sheet.count()} sprites carregados — selecione um item")
+        else:
+            self._scene.clear()
+            self._lbl_info.setText("Nenhum SFF carregado")
+
+    @Slot(QModelIndex, QModelIndex)
+    def _on_tree_selection(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        data = self._model.data(current, Qt.UserRole)
+        if data is None:
+            return
+        group, item = data
+        if item is None:
+            return
+        self._display_sprite(group, item)
+
+    def _display_sprite(self, group: int, item: int) -> None:
+        if self._sheet is None:
+            return
+        result = self._sheet.get_rgba(group, item)
+        if result is None:
+            self._lbl_info.setText(f"Grupo {group}, Item {item} — dados indisponíveis")
+            self._scene.clear()
+            return
+        rgba, w, h = result
+        if w == 0 or h == 0:
+            self._lbl_info.setText(f"Grupo {group}, Item {item} — sprite vazio")
+            self._scene.clear()
+            return
+        self._lbl_info.setText(f"Grupo {group}, Item {item}  —  {w}×{h} px")
+        img = QImage(rgba, w, h, QImage.Format_RGBA8888)
+        pixmap = QPixmap.fromImage(img)
+        self._scene.clear()
+        self._scene.addPixmap(pixmap)
+        self._scene.setSceneRect(0, 0, w, h)
+        self._gv.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+
+
+# ------------------------------------------------------------------
 # Editor principal
 # ------------------------------------------------------------------
 
@@ -382,11 +497,18 @@ class DefEditor(QWidget):
         self._scroll.setWidget(self._form_content)
         splitter.addWidget(self._scroll)
 
-        # Direita: painel de portrait
-        self._portrait_panel = _PortraitPanel()
-        self._portrait_panel.setMinimumWidth(220)
-        self._portrait_panel.reload_requested.connect(self._try_load_portrait)
-        splitter.addWidget(self._portrait_panel)
+        # Direita: abas Portrait + Sprites
+        self._right_tabs = QTabWidget()
+        self._right_tabs.setMinimumWidth(240)
+
+        self._portrait_tab = _PortraitTab()
+        self._portrait_tab.reload_requested.connect(self._try_load_portrait)
+        self._right_tabs.addTab(self._portrait_tab, "Portrait")
+
+        self._sprite_tab = _SpriteBrowserTab()
+        self._right_tabs.addTab(self._sprite_tab, "Sprites")
+
+        splitter.addWidget(self._right_tabs)
 
         splitter.setSizes([700, 240])
 
@@ -635,7 +757,7 @@ class DefEditor(QWidget):
                 full = os.path.join(self._char_dir, val) if not os.path.isabs(val) else val
                 file_status.append((val, os.path.isfile(full)))
 
-        self._portrait_panel.set_file_status(file_status)
+        self._portrait_tab.set_file_status(file_status)
 
     # ------------------------------------------------------------------
     # Carregamento do portrait
@@ -644,7 +766,7 @@ class DefEditor(QWidget):
     @Slot()
     def _try_load_portrait(self) -> None:
         if self._doc is None:
-            self._portrait_panel.show_placeholder("Nenhum .def carregado")
+            self._portrait_tab.show_placeholder("Nenhum .def carregado")
             return
 
         doc_files = self._doc.section("Files")
@@ -653,16 +775,16 @@ class DefEditor(QWidget):
             sff_val = doc_files.get("sprite") or doc_files.get("sff") or ""
 
         if not sff_val:
-            self._portrait_panel.show_placeholder("SFF não definido em [Files]")
+            self._portrait_tab.show_placeholder("SFF não definido em [Files]")
             return
 
         sff_full = os.path.join(self._char_dir, sff_val) if not os.path.isabs(sff_val) else sff_val
         if not os.path.isfile(sff_full):
-            self._portrait_panel.show_placeholder("SFF não encontrado:\n" + sff_val)
+            self._portrait_tab.show_placeholder("SFF não encontrado:\n" + sff_val)
             return
 
         self._pending_sff_path = sff_full
-        self._portrait_panel.show_placeholder("Carregando…")
+        self._portrait_tab.show_placeholder("Carregando…")
 
         loader = _PortraitLoader(sff_full)
         loader.signals.finished.connect(self._on_portrait_loaded)
@@ -675,7 +797,8 @@ class DefEditor(QWidget):
         if sheet.path != self._pending_sff_path:
             return
 
-        self._portrait_panel.set_sff_info(f"SFF v{sheet.version}")
+        self._portrait_tab.set_sff_info(f"SFF v{sheet.version}")
+        self._sprite_tab.set_sheet(sheet)
 
         px_large: QPixmap | None = None
         px_small: QPixmap | None = None
@@ -695,13 +818,14 @@ class DefEditor(QWidget):
                 px_small = QPixmap.fromImage(img)
 
         if px_large:
-            self._portrait_panel.show_portrait(px_large, px_small)
+            self._portrait_tab.show_portrait(px_large, px_small)
         else:
-            self._portrait_panel.show_placeholder("Portrait (9000,0) não encontrado")
+            self._portrait_tab.show_placeholder("Portrait (9000,0) não encontrado")
 
     @Slot(str)
     def _on_portrait_error(self, msg: str) -> None:
-        self._portrait_panel.show_placeholder(f"Erro ao carregar SFF:\n{msg}")
+        self._portrait_tab.show_placeholder(f"Erro ao carregar SFF:\n{msg}")
+        self._sprite_tab.set_sheet(None)
 
     # ------------------------------------------------------------------
     # Salvar
