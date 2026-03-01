@@ -1,0 +1,17 @@
+# Normaliza line endings: LF no repositório, checkout automático por plataforma
+* text=auto
+
+# Python e texto sempre LF
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.gitignore text eol=lf
+
+# Binários — sem conversão
+*.sff binary
+*.pcx binary
+*.png binary
+*.jpg binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
